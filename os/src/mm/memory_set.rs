@@ -37,6 +37,22 @@ pub struct MemorySet {
 }
 
 impl MemorySet {
+
+    ///
+    pub fn already_mapped(&self, start: VirtAddr, end: VirtAddr) -> bool {
+        self.areas.iter().any(|area| {
+            area.vpn_range.get_end() > start.floor()
+                && area.vpn_range.get_start() < end.ceil()
+        })
+    }
+    /// mmap system call
+    pub fn mem_mmap(&mut self, start: usize, len: usize, port: MapPermission) -> isize{
+        self.page_table.mmap(start, len, port)
+    }
+    /// munmap system call
+    pub fn mem_munmap(&mut self, start: usize, len: usize) -> isize{
+        self.page_table.munmap(start, len)
+    }
     /// Create a new empty `MemorySet`.
     pub fn new_bare() -> Self {
         Self {

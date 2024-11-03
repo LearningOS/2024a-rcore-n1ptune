@@ -1,7 +1,7 @@
 //! Types related to task management & Functions for completely changing TCB
-use super::TaskContext;
+use super::{add_task, TaskContext};
 use super::{kstack_alloc, pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{BIG_STRIDE, MAX_SYSCALL_NUM, TRAP_CONTEXT_BASE};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
@@ -33,6 +33,16 @@ impl TaskControlBlock {
     pub fn get_user_token(&self) -> usize {
         let inner = self.inner_exclusive_access();
         inner.memory_set.token()
+    }
+    /// Get the stride of the task
+    pub fn get_stride(&self) -> usize {
+        let inner = self.inner_exclusive_access();
+        inner.stride
+    }
+    /// add the stride of the task
+    pub fn add_stride(&self) {
+        let mut inner = self.inner_exclusive_access();
+        inner.stride += inner.pass;
     }
 }
 
@@ -68,6 +78,19 @@ pub struct TaskControlBlockInner {
 
     /// Program break
     pub program_brk: usize,
+
+    /// The start time of the task
+    pub start_time: usize,
+    /// The total running time of the task
+    pub syscall_times: [u32; MAX_SYSCALL_NUM],
+    /// The task runned or not
+    pub runned: bool,
+    /// stride scheduling
+    pub stride: usize,
+    /// priority scheduling
+    pub priority: usize,
+    /// pub pass
+    pub pass: usize,
 }
 
 impl TaskControlBlockInner {
@@ -118,6 +141,12 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: user_sp,
                     program_brk: user_sp,
+                    start_time: 0,
+                    syscall_times: [0; MAX_SYSCALL_NUM],
+                    runned: false,
+                    stride: 0,
+                    priority: 16,
+                    pass: BIG_STRIDE / 16,
                 })
             },
         };
@@ -191,6 +220,12 @@ impl TaskControlBlock {
                     exit_code: 0,
                     heap_bottom: parent_inner.heap_bottom,
                     program_brk: parent_inner.program_brk,
+                    start_time: 0,
+                    syscall_times: [0; MAX_SYSCALL_NUM],
+                    runned: false,
+                    stride: 0,
+                    priority: 16,
+                    pass: BIG_STRIDE / 16,
                 })
             },
         });
@@ -205,7 +240,16 @@ impl TaskControlBlock {
         // **** release child PCB
         // ---- release parent PCB
     }
-
+    /// spwan a new process
+    pub fn spwan(self:&Arc<Self>, elf_data: &[u8]) -> usize{
+        let mut parent = self.inner_exclusive_access();
+        let tcb = Arc::new(TaskControlBlock::new(elf_data));
+        tcb.inner_exclusive_access().parent = Some(Arc::downgrade(self));
+        parent.children.push(tcb.clone());
+        let pid = tcb.pid.0;
+        add_task(tcb);
+        pid
+    }
     /// get pid of process
     pub fn getpid(&self) -> usize {
         self.pid.0

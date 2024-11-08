@@ -16,6 +16,10 @@ pub struct SemaphoreInner {
 }
 
 impl Semaphore {
+    /// Get the length of wait queue
+    pub fn wait_queue_len(&self) -> usize {
+        self.inner.exclusive_access().wait_queue.len()
+    }
     /// Create a new semaphore
     pub fn new(res_count: usize) -> Self {
         trace!("kernel: Semaphore::new");

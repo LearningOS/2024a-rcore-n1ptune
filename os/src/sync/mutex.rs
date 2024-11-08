@@ -12,6 +12,8 @@ pub trait Mutex: Sync + Send {
     fn lock(&self);
     /// Unlock the mutex
     fn unlock(&self);
+    /// already locked
+    fn is_locked(&self) -> bool;
 }
 
 /// Spinlock Mutex struct
@@ -29,6 +31,10 @@ impl MutexSpin {
 }
 
 impl Mutex for MutexSpin {
+    fn is_locked(&self) -> bool{
+        let locked = self.locked.exclusive_access();
+        *locked
+    }
     /// Lock the spinlock mutex
     fn lock(&self) {
         trace!("kernel: MutexSpin::lock");
@@ -78,6 +84,11 @@ impl MutexBlocking {
 }
 
 impl Mutex for MutexBlocking {
+
+    fn is_locked(&self) -> bool {
+        let mutex_inner = self.inner.exclusive_access();
+        mutex_inner.locked
+    }
     /// lock the blocking mutex
     fn lock(&self) {
         trace!("kernel: MutexBlocking::lock");

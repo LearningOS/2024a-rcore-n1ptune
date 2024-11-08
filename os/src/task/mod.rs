@@ -22,7 +22,7 @@ mod switch;
 #[allow(rustdoc::private_intra_doc_links)]
 mod task;
 
-use crate::fs::{open_file, OpenFlags};
+use crate::{config::{BIG_STRIDE, MAX_SYSCALL_NUM}, fs::{open_file, OpenFlags}};
 use alloc::sync::Arc;
 pub use context::TaskContext;
 use lazy_static::*;
@@ -119,4 +119,43 @@ lazy_static! {
 ///Add init process to the manager
 pub fn add_initproc() {
     add_task(INITPROC.clone());
+}
+
+/// Get the pid of the current task
+pub fn set_start_time() {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.start_time = crate::timer::get_time_us();
+}
+/// Get the pid of the current task
+pub fn get_runned_time() -> usize {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    let current_time = crate::timer::get_time_us();
+    let runned_time = current_time - inner.start_time;
+    runned_time / 1000
+}
+/// Get the pid of the current task
+pub fn add_syscall_count(syscall_id: usize) {
+    let task = current_task().unwrap();
+    let mut inner = task.inner_exclusive_access();
+    inner.syscall_times[syscall_id] += 1;
+}
+/// Get the pid of the current task
+pub fn get_syscall_count() -> [u32; MAX_SYSCALL_NUM] {
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    inner.syscall_times.clone()
+}
+
+/// Get the current task's pid
+#[allow(unused)]
+pub fn set_current_priority(priority: isize) -> isize{
+    if priority < 2 {
+        return -1;
+    }
+    let task = current_task().unwrap();
+    task.inner_exclusive_access().priority = priority as usize;
+    task.inner_exclusive_access().pass = BIG_STRIDE / priority as usize;
+    priority
 }

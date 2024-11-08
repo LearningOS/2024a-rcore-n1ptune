@@ -1,5 +1,8 @@
 //! Implementation of [`PageTableEntry`] and [`PageTable`].
-use super::{frame_alloc, FrameTracker, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
+
+use crate::task::current_task;
+
+use super::{frame_alloc, FrameTracker, MapPermission, PhysAddr, PhysPageNum, StepByOne, VirtAddr, VirtPageNum};
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -139,6 +142,65 @@ impl PageTable {
         assert!(pte.is_valid(), "vpn {:?} is invalid before unmapping", vpn);
         *pte = PageTableEntry::empty();
     }
+    #[allow(unused)]
+    /// map the virtual address to physical address
+    pub fn mmap(&mut self, start: usize, len: usize, port: MapPermission) -> isize {
+        let mut start_va = VirtAddr::from(start);
+        let end_va: VirtAddr = VirtAddr::from(start + len).ceil().into();
+        if !start_va.aligned(){
+            return -1
+        }
+
+        // trace!("mmap start_va: {:?}, end_va: {:?}, perm: {:?}", start_va, end_va, perm);
+
+        while start_va < end_va {
+            let mut vpn = start_va.floor();
+            if let Some(pte) = self.translate(vpn) {
+                if pte.is_valid() {
+                    error!("address {:?} is mapped before mapping", vpn);
+                    return -1;
+                }
+            }
+            if let Some(frame) = frame_alloc() {
+                let pteflags = PTEFlags::from_bits(port.bits()).unwrap();
+                self.map(vpn, frame.ppn, pteflags);
+                // trace!("mmap {:?} -> {:?}, pteflags: {:?}", vpn, frame.ppn, pteflags);
+                vpn.step();
+                start_va = vpn.into();
+            } else {
+                error!("frame allocation failed");
+                return -1;
+            }
+        }
+        0
+    }
+    /// remove the map between virtual page number and physical page number
+    pub fn munmap(&mut self, start: usize, len: usize) -> isize {
+             let mut start_va = VirtAddr::from(start);
+        if !start_va.aligned() {
+            error!("start address is not aligned");
+            return -1;
+        }
+        let end_va: VirtAddr = VirtAddr::from(start + len).ceil().into();
+
+        while start_va < end_va {
+            let mut vpn = start_va.floor();
+            if let Some(pte) = self.translate(vpn) {
+                if pte.is_valid() {
+                    self.unmap(vpn);
+                } else {
+                    error!("address {:?} is invalid before unmapping", vpn);
+                    return -1;
+                }
+                vpn.step();
+                start_va = vpn.into();
+            } else {
+                error!("address {:?} is not mapped before unmapping", vpn);
+                return -1;
+            }
+        }
+        0
+    }
     /// get the page table entry from the virtual page number
     pub fn translate(&self, vpn: VirtPageNum) -> Option<PageTableEntry> {
         self.find_pte(vpn).map(|pte| *pte)
@@ -275,4 +337,31 @@ impl Iterator for UserBufferIterator {
             Some(r)
         }
     }
+}
+
+///get physical address from virtual address
+pub fn get_pa_from_va(token: usize, ptr: usize) -> usize{
+    let page_table = PageTable::from_token(token);
+    let va = VirtAddr::from(ptr);
+    let vpn = va.floor();
+    let ppn = page_table.translate(vpn).unwrap().ppn();
+    let pa = usize::from(ppn) << 12 | va.page_offset();
+    pa.into()
+}
+
+///do mmap
+pub fn do_mmap(start: usize, len: usize, port: usize) -> isize {
+    if port & !0x7 != 0 || port & 0x7 == 0 {
+        return -1;
+    }
+    let permission = MapPermission::from_bits((port << 1) as u8).unwrap() | MapPermission::U;
+
+
+    current_task().unwrap().inner_exclusive_access().memory_set.mem_mmap(start, len, permission)
+
+}
+///do munmap
+pub fn do_munmap(start: usize, len: usize) -> isize {
+    current_task().unwrap().inner_exclusive_access().memory_set.mem_munmap(start, len)
+
 }

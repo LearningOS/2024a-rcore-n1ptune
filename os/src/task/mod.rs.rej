@@ -1,0 +1,113 @@
+diff a/os/src/task/mod.rs b/os/src/task/mod.rs	(rejected hunks)
+@@ -14,7 +14,9 @@ mod switch;
+ #[allow(clippy::module_inception)]
+ mod task;
+ 
++use crate::config::MAX_SYSCALL_NUM;
+ use crate::loader::{get_app_data, get_num_app};
++use crate::mm::MapPermission;
+ use crate::sync::UPSafeCell;
+ use crate::trap::TrapContext;
+ use alloc::vec::Vec;
+@@ -71,6 +73,47 @@ lazy_static! {
+ }
+ 
+ impl TaskManager {
++
++    fn set_start_time(&self) {
++        let mut inner = self.inner.exclusive_access();
++        let current = inner.current_task;
++        inner.tasks[current].start_time = crate::timer::get_time_us();
++    }
++
++    fn get_runned_time(&self) -> usize {
++        let inner = self.inner.exclusive_access();
++        let current = inner.current_task;
++        let current_time = crate::timer::get_time_us();
++        let runned_time = current_time - inner.tasks[current].start_time;
++        runned_time / 1000
++    }
++
++    fn add_syscall_count(&self, syscall_id: usize) {
++        let mut inner = self.inner.exclusive_access();
++        let current = inner.current_task;
++        inner.tasks[current].syscall_times[syscall_id] += 1;
++    }
++
++    fn get_syscall_count(&self) -> [u32; MAX_SYSCALL_NUM] {
++        let inner = self.inner.exclusive_access();
++        let current = inner.current_task;
++        inner.tasks[current].syscall_times.clone()
++    }
++    /// do_mmap
++    pub fn do_mmap(&self, start: usize, len: usize, port: usize) -> isize {
++        let mut inner = self.inner.exclusive_access();
++        let cur = inner.current_task;
++        let current_task = &mut inner.tasks[cur];
++
++        let perm = MapPermission::from_bits_truncate((port<<1) as u8) | MapPermission::U;
++        current_task.memory_set.mem_mmap(start, len, perm)
++    }
++    /// do_munmap
++    pub fn do_munmap(&self, start: usize, len: usize) -> isize {
++        let mut inner = self.inner.exclusive_access();
++        let cur = inner.current_task;
++        inner.tasks[cur].memory_set.mem_munmap(start, len)
++    }
+     /// Run the first task in task list.
+     ///
+     /// Generally, the first task in task list is an idle task (we call it zero process later).
+@@ -78,6 +121,10 @@ impl TaskManager {
+     fn run_first_task(&self) -> ! {
+         let mut inner = self.inner.exclusive_access();
+         let next_task = &mut inner.tasks[0];
++        if !next_task.runned{
++            next_task.start_time = crate::timer::get_time_us();
++            next_task.runned = true;
++        }
+         next_task.task_status = TaskStatus::Running;
+         let next_task_cx_ptr = &next_task.task_cx as *const TaskContext;
+         drop(inner);
+@@ -141,6 +188,10 @@ impl TaskManager {
+             let current = inner.current_task;
+             inner.tasks[next].task_status = TaskStatus::Running;
+             inner.current_task = next;
++            if !inner.tasks[next].runned{
++                inner.tasks[next].start_time = crate::timer::get_time_us();
++                inner.tasks[next].runned = true;
++            }
+             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
+             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
+             drop(inner);
+@@ -202,3 +253,30 @@ pub fn current_trap_cx() -> &'static mut TrapContext {
+ pub fn change_program_brk(size: i32) -> Option<usize> {
+     TASK_MANAGER.change_current_program_brk(size)
+ }
++
++///current_mmap
++pub fn current_mmap(start: usize, len: usize, port: usize) -> isize{
++    TASK_MANAGER.do_mmap(start, len, port)
++}
++///current_munmap
++pub fn current_munmap(start: usize, len: usize) -> isize{
++    TASK_MANAGER.do_munmap(start, len)
++}
++
++/// Set the start time of the current task
++pub fn set_start_time() {
++    TASK_MANAGER.set_start_time();
++}
++/// Get the runned time of the current task
++pub fn get_runned_time() -> usize {
++    TASK_MANAGER.get_runned_time()
++}
++/// Count the syscall of the current task
++pub fn add_syscall_count(syscall_id  : usize) {
++    TASK_MANAGER.add_syscall_count(syscall_id);
++}
++
++/// Get the syscall count of the current task
++pub fn get_syscall_count()-> [u32; MAX_SYSCALL_NUM] {
++    TASK_MANAGER.get_syscall_count()
++}
+\ No newline at end of file

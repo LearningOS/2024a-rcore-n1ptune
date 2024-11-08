@@ -4,8 +4,8 @@
 //!
 //! `UPSafeCell<OSInodeInner>` -> `OSInode`: for static `ROOT_INODE`,we
 //! need to wrap `OSInodeInner` into `UPSafeCell`
-use super::File;
-use crate::drivers::BLOCK_DEVICE;
+use super::{File, Stat, StatMode};
+use crate::{drivers::BLOCK_DEVICE, task::current_task};
 use crate::mm::UserBuffer;
 use crate::sync::UPSafeCell;
 use alloc::sync::Arc;
@@ -52,6 +52,7 @@ impl OSInode {
         }
         v
     }
+
 }
 
 lazy_static! {
@@ -99,7 +100,43 @@ impl OpenFlags {
         }
     }
 }
+/// Unlink a file
+#[allow(unused)]
+pub fn unlinkat(path: &str) -> isize {
+    if ROOT_INODE.find(path).is_none() {
+        return -1;
+    }
+    ROOT_INODE.unlinkat(path);
+    0
+}
 
+/// linkat
+pub fn linkat(old_path: &str, new_path: &str) -> isize{
+    if old_path.eq(new_path) {
+        return -1;
+    }
+    if ROOT_INODE.find(new_path).is_some() {
+        return -1;
+    }
+    if ROOT_INODE.find(old_path).is_none() {
+        return -1;
+    }
+    ROOT_INODE.linkat(old_path, new_path)
+}
+
+/// Get the stat of a file
+pub fn fstat(fd: usize) -> Option<Stat>{
+    let task = current_task().unwrap();
+    let inner = task.inner_exclusive_access();
+    if fd >= inner.fd_table.len() {
+        return None;
+    }
+    if inner.fd_table[fd].is_none() {
+        return None;
+    }
+    let osnode = inner.fd_table[fd].as_ref().unwrap();
+    Some(osnode.fstat(fd))
+}
 /// Open a file
 pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     let (readable, writable) = flags.read_write();
@@ -155,4 +192,22 @@ impl File for OSInode {
         }
         total_write_size
     }
+    fn fstat(&self, _fd: usize) -> Stat {
+        let inner = self.inner.exclusive_access();
+        let ino = inner.inode.get_inode_id() as u64;
+        let mode = if inner.inode.is_dir() {
+            StatMode::DIR
+        } else {
+            StatMode::FILE
+        };
+        let nlink = inner.inode.get_hard_link_count();
+        Stat {
+            dev: 0,
+            ino,
+            mode,
+            nlink,
+            pad: [0; 7],
+        }
+    }
 }
+

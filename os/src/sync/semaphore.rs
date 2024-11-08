@@ -16,6 +16,10 @@ pub struct SemaphoreInner {
 }
 
 impl Semaphore {
+    ///get count
+    pub fn get_count(&self) -> isize {
+        self.inner.exclusive_access().count
+    }
     /// Get the length of wait queue
     pub fn wait_queue_len(&self) -> usize {
         self.inner.exclusive_access().wait_queue.len()

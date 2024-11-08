@@ -170,8 +170,15 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
     let process_inner = process.inner_exclusive_access();
     let enable_deadlock_detect = process_inner.enable_deadlock_detect;
     let sem = Arc::clone(process_inner.semaphore_list[sem_id].as_ref().unwrap());
+    let task_count = process_inner.tasks.len();
+    let mut wait_count = 0;
+    for i in process_inner.semaphore_list.iter() {
+        if let Some(sem) = i {
+            wait_count += sem.wait_queue_len();
+        }
+    }
     drop(process_inner);
-    if enable_deadlock_detect && sem.wait_queue_len() >2{
+    if enable_deadlock_detect && wait_count >= task_count - 2 && sem.get_count() <= 0{
         return -0xdead;
     }
     sem.down();

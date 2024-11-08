@@ -178,7 +178,7 @@ pub fn sys_semaphore_down(sem_id: usize) -> isize {
         }
     }
     drop(process_inner);
-    if enable_deadlock_detect && wait_count >= task_count - 2 && sem.get_count() <= 0{
+    if enable_deadlock_detect && (wait_count > task_count - 2) && (sem.get_count() <= 0){
         return -0xdead;
     }
     sem.down();

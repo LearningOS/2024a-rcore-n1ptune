@@ -274,3 +274,12 @@ impl Iterator for UserBufferIterator {
         }
     }
 }
+///get physical address from virtual address
+pub fn get_pa_from_va(token: usize, ptr: usize) -> usize{
+    let page_table = PageTable::from_token(token);
+    let va = VirtAddr::from(ptr);
+    let vpn = va.floor();
+    let ppn = page_table.translate(vpn).unwrap().ppn();
+    let pa = usize::from(ppn) << 12 | va.page_offset();
+    pa.into()
+}
